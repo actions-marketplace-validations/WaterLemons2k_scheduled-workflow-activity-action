@@ -1,51 +1,40 @@
 #!/bin/bash
-set -e
+set -eo pipefail
+. colors.sh
 
-if [ ! -d .git ]; then
-    echo "Not a git directory!"
+debug() {
+    echo "::debug::$1"
+}
+warn() {
+    echo "::warning::$1"
+}
+err() {
+    echo "::error::$1" >&2
     exit 1
-fi
+}
 
-if [ -z "$(git show 2>/dev/null)" ]; then
-    echo "No commits yet!"
-    exit 1
-fi
+get_workflow_name() {
+    local ref=$GITHUB_WORKFLOW_REF
+    [ -z "$ref" ] && err 'No workflows'
 
-if [ -z "$INPUT_NAME" ] || [ -z "$INPUT_EMAIL" ]; then
-    echo "Missing input \`name\` and/or \`email\`! Need them to commit."
-    exit 1
-fi
+    ref=${ref%@*}  # split('@')[0]
+    ref=${ref##*/} # split('/')[-1]
+    echo "$ref"
+}
 
-if [ -z "$INPUT_MESSAGE" ]; then
-    echo "Missing input \`message\`! Need it as the commit message."
-    exit 1
-fi
+[ -z "$GITHUB_REPOSITORY" ] && err 'Missing repository'
+export GH_TOKEN=$INPUT_TOKEN
+[ -z "$GH_TOKEN" ] && err 'Missing token'
+[ -z "$INPUT_WORKFLOWS" ] && INPUT_WORKFLOWS=$(get_workflow_name)
 
-if [ -z "$INPUT_DAYS" ]; then
-    echo "Missing input \`days\`! Need it to calculate the number of days between the latest commit and the new commit."
-    exit 1
-fi
+API_BASE=repos/$GITHUB_REPOSITORY/actions/workflows
+for workflow in $INPUT_WORKFLOWS; do
+    endpoint=$API_BASE/$workflow/enable
+    debug "endpoint: $endpoint"
 
-if [ -z "$INPUT_PUSH" ]; then
-    echo "Missing input \`push\`! Need it to decide whether to push a new commit or not."
-    exit 1
-fi
-
-# Subtract the current UNIX timestamp from the latest committed UNIX timestamp
-# and divide by 86400 to get the number of interval days.
-DAYS=$(( ($(date +%s)  - $(date +%s -d "$(git show -s --date=format:'%Y%m%d' --format=%cd)")) / 86400 ))
-
-# If the number of days between is greater than or equal to the number
-# of input days, create a new commit. Otherwise nothing to do.
-if [ "$DAYS" -gt "$INPUT_DAYS" ] || [ "$DAYS" -eq "$INPUT_DAYS" ]; then
-    echo "Create a new commit..."
-    git config user.name "$INPUT_NAME"
-    git config user.email "$INPUT_EMAIL"
-    git commit --allow-empty --message "$INPUT_MESSAGE"
-
-    if [ "$INPUT_PUSH" = "true" ]; then
-        git push
+    if gh api -X PUT --silent "$endpoint"; then
+        echo "$(green '✓ Enabled') $workflow"
+    else
+        warn "$(red '✗ Failed to enable') $workflow"
     fi
-else
-    echo "Nothing to do..."
-fi
+done

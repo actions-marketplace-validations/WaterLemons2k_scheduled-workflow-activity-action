@@ -1,0 +1,19 @@
+name: Reusable workflow for keep scheduled workflow activity
+
+on:
+  workflow_call:
+    inputs:
+      workflows:
+        type: string
+
+permissions:
+  actions: write
+
+jobs:
+  keep-scheduled-workflow-activity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Keep scheduled workflow activity
+        uses: WaterLemons2k/scheduled-workflow-activity-action@v1
+        with:
+          workflows: ${{ inputs.workflows }}
